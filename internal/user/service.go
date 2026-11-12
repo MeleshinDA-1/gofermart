@@ -13,6 +13,7 @@ import (
 // Операции баланса и списаний требуют контекст auth.Middleware.
 type Service struct {
 	Repository Repository
+	jwtSecret  string
 }
 
 // Authenticate проверяет логин и пароль и возвращает JWT.
@@ -37,29 +38,29 @@ func (userService *Service) Authenticate(ctx context.Context, login, password st
 		return "", auth.ErrInvalidCredentials
 	}
 
-	return auth.IssueToken(user.ID)
+	return auth.IssueToken(user.ID, userService.jwtSecret)
 }
 
 // SaveUser хэширует пароль, регистрирует пользователя и возвращает JWT.
 // При занятом логине возвращает ErrLoginTaken.
 // Ошибка выпуска JWT не отменяет уже выполненное сохранение пользователя.
-func (userService *Service) SaveUser(ctx context.Context, userApi Credentials) (string, error) {
-	passwordHash, err := calculateHash(userApi.Password)
+func (userService *Service) SaveUser(ctx context.Context, userAPI Credentials) (string, error) {
+	passwordHash, err := calculateHash(userAPI.Password)
 	if err != nil {
 		return "", err
 	}
 
-	user := User{Login: userApi.Login, PasswordHash: passwordHash}
+	user := User{Login: userAPI.Login, PasswordHash: passwordHash}
 
 	userID, err := userService.Repository.SaveUser(ctx, user)
 	if err != nil {
 		return "", err
 	}
 
-	return auth.IssueToken(userID)
+	return auth.IssueToken(userID, userService.jwtSecret)
 }
 
 // NewService создаёт сервис пользователей с переданным репозиторием.
-func NewService(userRepository Repository) *Service {
-	return &Service{Repository: userRepository}
+func NewService(userRepository Repository, jwtSecret string) *Service {
+	return &Service{Repository: userRepository, jwtSecret: jwtSecret}
 }

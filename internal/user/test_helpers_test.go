@@ -57,7 +57,7 @@ func userRow(user User, err error) pgx.Row {
 }
 
 func testService(query queryRowFunc) *Service {
-	return NewService(Repository{pool: query})
+	return NewService(Repository{pool: query}, testJWTSecret)
 }
 
 func signedTestToken(t *testing.T, claims jwt.Claims, method jwt.SigningMethod, key any) string {
@@ -98,6 +98,6 @@ func checkIssuedToken(t *testing.T, tokenString string, userID int64) {
 
 func testMux(handler *Handler) *http.ServeMux {
 	mux := http.NewServeMux()
-	handler.RegisterRoutes(mux)
+	handler.RegisterRoutes(mux, testJWTSecret)
 	return mux
 }

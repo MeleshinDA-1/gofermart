@@ -11,8 +11,6 @@ import (
 )
 
 func TestParseToken(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
-
 	validClaims := jwt.RegisteredClaims{
 		Subject: "42", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	}
@@ -44,7 +42,7 @@ func TestParseToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token, err := ParseToken(tt.token)
+			token, err := ParseToken(tt.token, testJWTSecret)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("expected error %v, got %v", tt.wantErr, err)
 			}
@@ -65,17 +63,24 @@ func TestParseToken(t *testing.T) {
 	}
 }
 
-func TestTokenFunctionsRejectInvalidSecret(t *testing.T) {
-	valid := validTestToken(t, "42")
-
-	for _, secret := range []string{"", strings.Repeat("x", 31)} {
-		t.Run(fmt.Sprintf("key length %d", len(secret)), func(t *testing.T) {
-			t.Setenv("JWT_SECRET", secret)
-			if token, err := IssueToken(42); err == nil || token != "" {
-				t.Fatal("issuing a token must fail with an invalid key")
+func TestTokenFunctionsUseProvidedSecret(t *testing.T) {
+	for _, envSecret := range []string{"", strings.Repeat("x", 32)} {
+		t.Run(fmt.Sprintf("environment key length %d", len(envSecret)), func(t *testing.T) {
+			t.Setenv("JWT_SECRET", envSecret)
+			tokenString, err := IssueToken(42, testJWTSecret)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if token, err := ParseToken(valid); err == nil || token != nil {
-				t.Fatal("verifying a token must fail with an invalid key")
+			token, err := ParseToken(tokenString, testJWTSecret)
+			if err != nil {
+				t.Fatal(err)
+			}
+			subject, err := token.Claims.GetSubject()
+			if !token.Valid || err != nil || subject != "42" {
+				t.Fatalf("token valid = %v, subject = %q, error = %v", token.Valid, subject, err)
+			}
+			if _, err := ParseToken(tokenString, strings.Repeat("z", 32)); !errors.Is(err, jwt.ErrTokenSignatureInvalid) {
+				t.Fatalf("wrong secret error = %v, want invalid signature", err)
 			}
 		})
 	}

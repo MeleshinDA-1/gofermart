@@ -45,20 +45,19 @@ func (rows *withdrawalHistoryRows) Scan(dest ...any) error {
 	withdrawal := rows.withdrawals[rows.index]
 	rows.index++
 	*dest[0].(*int64) = withdrawal.id
-	*dest[1].(*int64) = withdrawal.userId
-	*dest[2].(*string) = withdrawal.orderId
+	*dest[1].(*int64) = withdrawal.userID
+	*dest[2].(*string) = withdrawal.orderID
 	*dest[3].(*float64) = withdrawal.sum
 	*dest[4].(*time.Time) = withdrawal.processedAt
 	return nil
 }
 
 func TestGetWithdrawalsHTTP(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	authorization := "Bearer " + validTestToken(t, "42")
 	date := time.Date(2026, 10, 20, 15, 4, 5, 123456789, time.FixedZone("MSK", 3*60*60))
 	withdrawals := []Withdrawal{
-		{id: 2, userId: 42, orderId: "00012345678903", sum: 500.5, processedAt: date},
-		{id: 1, userId: 42, orderId: "79927398713", sum: 42, processedAt: date.Add(-time.Hour)},
+		{id: 2, userID: 42, orderID: "00012345678903", sum: 500.5, processedAt: date},
+		{id: 1, userID: 42, orderID: "79927398713", sum: 42, processedAt: date.Add(-time.Hour)},
 	}
 	const wantJSON = `[
 		{"order":"00012345678903","sum":500.5,"processed_at":"2026-10-20T15:04:05+03:00"},

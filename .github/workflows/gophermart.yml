@@ -1,0 +1,72 @@
+name: gophermart
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    container: golang:1.27.1
+
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: praktikum
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Download autotests binaries
+        uses: robinraju/release-downloader@v1.8
+        with:
+          repository: Yandex-Practicum/go-autotests
+          latest: true
+          fileName: "*"
+          out-file-path: .tools
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup autotest binary
+        run: |
+          chmod -R +x $GITHUB_WORKSPACE/.tools
+          mv $GITHUB_WORKSPACE/.tools/gophermarttest /usr/local/bin/gophermarttest
+          mv $GITHUB_WORKSPACE/.tools/random /usr/local/bin/random
+
+      - name: Prepare binaries
+        run: |
+          (cd cmd/gofermart && go build -buildvcs=false -o gophermart)
+          curl -fsSL https://raw.githubusercontent.com/yandex-praktikum/go-musthave-diploma-tpl/c9b1ea58dd01fba3c93b69a8dd01786c30ce3e26/cmd/accrual/accrual_linux_amd64 -o .tools/accrual
+          chmod +x .tools/accrual
+
+      - name: Unit and database startup tests
+        env:
+          TEST_DATABASE_URI: postgresql://postgres:postgres@postgres/praktikum?sslmode=disable
+        run: go test ./...
+
+      - name: Test
+        env:
+          JWT_SECRET: ci-only-secret-for-gophermart-autotests
+        run: |
+          gophermarttest \
+            -test.v -test.run=^TestGophermart$ \
+            -gophermart-binary-path=cmd/gofermart/gophermart \
+            -gophermart-host=localhost \
+            -gophermart-port=8080 \
+            -gophermart-database-uri="postgresql://postgres:postgres@postgres/praktikum?sslmode=disable" \
+            -accrual-binary-path=.tools/accrual \
+            -accrual-host=localhost \
+            -accrual-port=$(random unused-port) \
+            -accrual-database-uri="postgresql://postgres:postgres@postgres/praktikum?sslmode=disable"

@@ -17,19 +17,19 @@ type Service struct {
 
 // MakeOrder проверяет номер по Луну и сохраняет новый заказ со статусом NEW.
 // Повторы возвращают ErrRepeatingOrder или ErrForeignOrder, в том числе при гонке вставок.
-func (o *Service) MakeOrder(ctx context.Context, orderId string) error {
-	if !PassesLuhn(orderId) {
+func (o *Service) MakeOrder(ctx context.Context, orderID string) error {
+	if len(orderID) > 255 || !PassesLuhn(orderID) {
 		return ErrIncorrectLuhn
 	}
 
-	userId, ok := auth.UserID(ctx)
+	userID, ok := auth.UserID(ctx)
 	if !ok {
 		return auth.ErrInvalidCredentials
 	}
 
 	newOrder := Order{
-		orderId:    orderId,
-		userId:     userId,
+		orderID:    orderID,
+		userID:     userID,
 		status:     StatusNew,
 		uploadDate: time.Now(),
 	}
@@ -39,6 +39,6 @@ func (o *Service) MakeOrder(ctx context.Context, orderId string) error {
 
 // GetOrders получает заказы текущего пользователя.
 func (o *Service) GetOrders(ctx context.Context) ([]Order, error) {
-	userId, _ := auth.UserID(ctx)
-	return o.Repository.GetOrders(ctx, userId)
+	userID, _ := auth.UserID(ctx)
+	return o.Repository.GetOrders(ctx, userID)
 }

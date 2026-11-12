@@ -45,8 +45,8 @@ func (rows *ordersListRows) Scan(dest ...any) error {
 	}
 	order := rows.orders[rows.index]
 	rows.index++
-	*dest[0].(*string) = order.orderId
-	*dest[1].(*int64) = order.userId
+	*dest[0].(*string) = order.orderID
+	*dest[1].(*int64) = order.userID
 	*dest[2].(*string) = order.status.String()
 	*dest[3].(*float64) = order.bonusesCredited
 	*dest[4].(*time.Time) = order.uploadDate
@@ -54,14 +54,13 @@ func (rows *ordersListRows) Scan(dest ...any) error {
 }
 
 func TestGetOrdersHTTP(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	token := validTestToken(t, "42")
 	date := time.Date(2026, 10, 20, 10, 20, 30, 0, time.FixedZone("MSK", 3*60*60))
 	orders := []Order{
-		{orderId: "0009278923470", userId: 42, status: StatusProcessed, bonusesCredited: 500.5, uploadDate: date},
-		{orderId: "12345678903", userId: 42, status: StatusProcessing, uploadDate: date.Add(-time.Hour)},
-		{orderId: "346436439", userId: 42, status: StatusInvalid, uploadDate: date.Add(-2 * time.Hour)},
-		{orderId: "2377225624", userId: 42, status: StatusNew, uploadDate: date.Add(-3 * time.Hour)},
+		{orderID: "0009278923470", userID: 42, status: StatusProcessed, bonusesCredited: 500.5, uploadDate: date},
+		{orderID: "12345678903", userID: 42, status: StatusProcessing, uploadDate: date.Add(-time.Hour)},
+		{orderID: "346436439", userID: 42, status: StatusInvalid, uploadDate: date.Add(-2 * time.Hour)},
+		{orderID: "2377225624", userID: 42, status: StatusNew, uploadDate: date.Add(-3 * time.Hour)},
 	}
 	const wantJSON = `[
 		{"number":"0009278923470","status":"PROCESSED","accrual":500.5,"uploaded_at":"2026-10-20T10:20:30+03:00"},
@@ -104,7 +103,7 @@ func TestGetOrdersHTTP(t *testing.T) {
 			api := Handler{Service: Service{Repository: Repository{pool: db}}}
 
 			mux := http.NewServeMux()
-			mux.Handle("GET /api/user/orders", auth.Middleware(http.HandlerFunc(api.GetOrders)))
+			mux.Handle("GET /api/user/orders", auth.Middleware(http.HandlerFunc(api.GetOrders), testJWTSecret))
 			request := httptest.NewRequest(http.MethodGet, "/api/user/orders?userId=999", nil)
 			if !test.noAuth {
 				request.Header.Set("Authorization", "Bearer "+token)

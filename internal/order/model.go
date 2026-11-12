@@ -7,8 +7,8 @@ import (
 
 // Order хранит номер заказа, владельца, состояние начисления и время загрузки.
 type Order struct {
-	orderId         string
-	userId          int64
+	orderID         string
+	userID          int64
 	status          Status
 	bonusesCredited float64
 	uploadDate      time.Time

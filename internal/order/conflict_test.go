@@ -29,19 +29,18 @@ func (db orderInsertDB) QueryRow(ctx context.Context, sql string, args ...any) p
 }
 
 func TestOrderInsertConflictHTTP(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	token := validTestToken(t, "7")
 	for _, test := range []struct {
 		name       string
 		inserted   bool
-		ownerId    int64
+		ownerID    int64
 		insertErr  error
 		readErr    error
 		wantStatus int
 	}{
 		{name: "new order", inserted: true, wantStatus: 202},
-		{name: "same owner won insert", ownerId: 7, wantStatus: 200},
-		{name: "other owner won insert", ownerId: 8, wantStatus: 409},
+		{name: "same owner won insert", ownerID: 7, wantStatus: 200},
+		{name: "other owner won insert", ownerID: 8, wantStatus: 409},
 		{name: "database failure", insertErr: errors.New("database unavailable"), wantStatus: 500},
 		{name: "unrelated constraint", insertErr: &pgconn.PgError{Code: "23505", ConstraintName: "other_key"}, wantStatus: 500},
 		{name: "owner lookup failure", readErr: errors.New("read failed"), wantStatus: 500},
@@ -72,12 +71,12 @@ func TestOrderInsertConflictHTTP(t *testing.T) {
 					if len(args) != 1 || args[0] != "12345678903" {
 						t.Fatalf("unexpected lookup arguments: %v", args)
 					}
-					return idRow(test.ownerId, test.readErr)
+					return idRow(test.ownerID, test.readErr)
 				},
 			}
 			api := Handler{Service: Service{Repository: Repository{pool: db}}}
 
-			handler := auth.Middleware(http.HandlerFunc(api.MakeOrder))
+			handler := auth.Middleware(http.HandlerFunc(api.MakeOrder), testJWTSecret)
 			request := httptest.NewRequest(http.MethodPost, "/api/user/orders", strings.NewReader("12345678903"))
 			request.Header.Set("Authorization", "Bearer "+token)
 			response := httptest.NewRecorder()

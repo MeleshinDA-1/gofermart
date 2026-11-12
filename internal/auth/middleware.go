@@ -9,7 +9,7 @@ import (
 
 // Middleware проверяет Authorization: Bearer <JWT> и положительный числовой sub.
 // При ошибке отвечает 401, при успехе передаёт next контекст с ID, доступным через UserID.
-func Middleware(next http.Handler) http.Handler {
+func Middleware(next http.Handler, secret string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
 		if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
@@ -17,7 +17,7 @@ func Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		parsedToken, err := ParseToken(token)
+		parsedToken, err := ParseToken(token, secret)
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
 			return

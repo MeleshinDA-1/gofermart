@@ -21,8 +21,8 @@ type Credentials struct {
 // Withdrawal хранит данные о списании баллов пользователем в счёт оплаты заказа.
 type Withdrawal struct {
 	id          int64
-	userId      int64
-	orderId     string
+	userID      int64
+	orderID     string
 	sum         float64
 	processedAt time.Time
 }

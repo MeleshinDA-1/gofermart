@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -16,15 +17,15 @@ type Handler struct {
 // MakeOrder принимает номер заказа как текст в теле запроса.
 // Возвращает 202 для нового заказа, 200 для своего повтора, 409 для чужого номера,
 // 422 при неверном номере, 400 при ошибке чтения тела.
-func (o *Handler) MakeOrder(responseWriter http.ResponseWriter, request *http.Request) {
+func (h *Handler) MakeOrder(responseWriter http.ResponseWriter, request *http.Request) {
 	x, err := io.ReadAll(request.Body)
 	if err != nil {
 		responseWriter.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	orderId := string(x)
-	if err = o.Service.MakeOrder(request.Context(), orderId); err != nil {
+	orderID := string(x)
+	if err = h.Service.MakeOrder(request.Context(), orderID); err != nil {
 		if errors.Is(err, ErrIncorrectLuhn) {
 			responseWriter.WriteHeader(http.StatusUnprocessableEntity)
 			return
@@ -40,6 +41,7 @@ func (o *Handler) MakeOrder(responseWriter http.ResponseWriter, request *http.Re
 			return
 		}
 
+		log.Printf("Сохранение заказа: %v", err)
 		responseWriter.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -49,9 +51,10 @@ func (o *Handler) MakeOrder(responseWriter http.ResponseWriter, request *http.Re
 
 // GetOrders отвечает 200 со своими заказами от новых к старым: number, status, uploaded_at (RFC3339),
 // ненулевое accrual для PROCESSED. При пустом списке возвращает 204.
-func (o *Handler) GetOrders(responseWriter http.ResponseWriter, request *http.Request) {
-	orders, err := o.Service.GetOrders(request.Context())
+func (h *Handler) GetOrders(responseWriter http.ResponseWriter, request *http.Request) {
+	orders, err := h.Service.GetOrders(request.Context())
 	if err != nil {
+		log.Printf("Получение заказов: %v", err)
 		responseWriter.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -69,7 +72,7 @@ func (o *Handler) GetOrders(responseWriter http.ResponseWriter, request *http.Re
 	response := make([]orderResponse, len(orders))
 	for i, order := range orders {
 		response[i] = orderResponse{
-			Number:     order.orderId,
+			Number:     order.orderID,
 			Status:     order.status.String(),
 			UploadedAt: order.uploadDate.Format(time.RFC3339),
 		}
@@ -80,6 +83,7 @@ func (o *Handler) GetOrders(responseWriter http.ResponseWriter, request *http.Re
 
 	body, err := json.Marshal(response)
 	if err != nil {
+		log.Printf("Формирование JSON заказов: %v", err)
 		responseWriter.WriteHeader(http.StatusInternalServerError)
 		return
 	}

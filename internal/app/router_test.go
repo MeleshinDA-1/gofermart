@@ -10,7 +10,7 @@ import (
 )
 
 func TestRoutes(t *testing.T) {
-	mux := newRouter(&user.Handler{}, &order.Handler{})
+	mux := newRouter(&user.Handler{}, &order.Handler{}, "0123456789abcdef0123456789abcdef")
 	for _, test := range []struct {
 		method string
 		path   string

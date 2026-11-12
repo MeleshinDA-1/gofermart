@@ -9,30 +9,30 @@ import (
 
 // GetBalance возвращает баланс и сумму списаний текущего пользователя.
 func (userService *Service) GetBalance(ctx context.Context) (float64, float64, error) {
-	userId, _ := auth.UserID(ctx)
-	return userService.Repository.GetBalance(ctx, userId)
+	userID, _ := auth.UserID(ctx)
+	return userService.Repository.GetBalance(ctx, userID)
 }
 
 // GetWithdrawals получает историю списаний текущего пользователя.
 func (userService *Service) GetWithdrawals(ctx context.Context) ([]Withdrawal, error) {
-	userId, _ := auth.UserID(ctx)
-	return userService.Repository.GetWithdrawals(ctx, userId)
+	userID, _ := auth.UserID(ctx)
+	return userService.Repository.GetWithdrawals(ctx, userID)
 }
 
 // Withdraw списывает баллы текущего пользователя.
 // Возможны order.ErrIncorrectLuhn, ErrInvalidSum и ErrInsufficientFunds.
-func (userService *Service) Withdraw(ctx context.Context, orderId string, sum float64) error {
-	if !order.PassesLuhn(orderId) {
+func (userService *Service) Withdraw(ctx context.Context, orderID string, sum float64) error {
+	if len(orderID) > 255 || !order.PassesLuhn(orderID) {
 		return order.ErrIncorrectLuhn
 	}
 	if sum <= 0 {
 		return ErrInvalidSum
 	}
 
-	userId, _ := auth.UserID(ctx)
+	userID, _ := auth.UserID(ctx)
 	return userService.Repository.Withdraw(ctx, Withdrawal{
-		userId:  userId,
-		orderId: orderId,
+		userID:  userID,
+		orderID: orderID,
 		sum:     sum,
 	})
 }

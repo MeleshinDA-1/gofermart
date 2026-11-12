@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,14 +55,14 @@ func (db *pollingDB) SendBatch(_ context.Context, batch *pgx.Batch) pgx.BatchRes
 				return err
 			}
 			update := Order{
-				orderId:         query.Arguments[0].(string),
+				orderID:         query.Arguments[0].(string),
 				status:          status,
 				bonusesCredited: query.Arguments[2].(float64),
 			}
 			db.updates = append(db.updates, update)
 			if status == StatusProcessed || status == StatusInvalid {
 				for i, id := range db.pending {
-					if id == update.orderId {
+					if id == update.orderID {
 						db.pending = append(db.pending[:i], db.pending[i+1:]...)
 						break
 					}
@@ -73,78 +74,79 @@ func (db *pollingDB) SendBatch(_ context.Context, batch *pgx.Batch) pgx.BatchRes
 }
 
 func TestPollBonusesResumesAfterRateLimit(t *testing.T) {
-	for _, oldStatus := range []int{http.StatusNoContent, http.StatusOK, http.StatusInternalServerError} {
-		t.Run(http.StatusText(oldStatus), func(t *testing.T) {
-			const oldOrder, readyOrder = "12345678903", "9278923470"
-			db := &pollingDB{pending: []string{oldOrder, readyOrder}}
-			var mu sync.Mutex
-			var requests []string
-			requestsInWindow := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mu.Lock()
-				defer mu.Unlock()
-				id := strings.TrimPrefix(r.URL.Path, "/api/orders/")
-				requests = append(requests, id)
-				requestsInWindow++
-				if requestsInWindow > 1 {
-					w.Header().Set("Retry-After", "1")
-					w.WriteHeader(http.StatusTooManyRequests)
-					return
-				}
-				if id == oldOrder {
-					w.WriteHeader(oldStatus)
-					if oldStatus == http.StatusOK {
-						fmt.Fprintf(w, `{"order":%q,"status":"PROCESSING"}`, id)
-					}
-					return
-				}
+	db := &pollingDB{pending: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}}
+	firstFour := make(chan struct{})
+	fifthStarted := make(chan struct{})
+	var requests atomic.Int32
+	var recovered atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/orders/")
+		if requests.Add(1) == 4 {
+			close(firstFour)
+		}
+		if recovered.Load() {
+			fmt.Fprintf(w, `{"order":%q,"status":"PROCESSED","accrual":12.5}`, id)
+			return
+		}
+		switch id {
+		case "1":
+			select {
+			case <-firstFour:
 				fmt.Fprintf(w, `{"order":%q,"status":"PROCESSED","accrual":12.5}`, id)
-			}))
-			defer server.Close()
-			service := Service{
-				Repository:    Repository{pool: db},
-				AccrualClient: *NewAccrualClient(server.URL, server.Client()),
+			case <-r.Context().Done():
 			}
-
-			for window := 0; window < 3; window++ {
-				mu.Lock()
-				requestsInWindow = 0
-				mu.Unlock()
-				pause, err := service.pollBonuses(context.Background())
-				wantPause := time.Second
-				if window == 2 {
-					wantPause = 0
-				}
-				if err != nil || pause != wantPause {
-					t.Fatalf("window %d: pause=%s, error=%v, want pause=%s", window, pause, err, wantPause)
-				}
-				if window == 0 && oldStatus == http.StatusOK && len(db.updates) != 1 {
-					t.Fatal("update received before 429 was not saved")
-				}
+		case "2":
+			select {
+			case <-fifthStarted:
+				w.Header().Set("Retry-After", "2")
+				w.WriteHeader(http.StatusTooManyRequests)
+			case <-r.Context().Done():
 			}
-
-			var processed []Order
-			for _, update := range db.updates {
-				if update.status == StatusProcessed {
-					processed = append(processed, update)
-				}
+		case "3", "4", "5":
+			if id == "5" {
+				close(fifthStarted)
 			}
-			if len(processed) != 1 || processed[0].orderId != readyOrder || processed[0].bonusesCredited != 12.5 {
-				t.Fatalf("ready order was not credited exactly once: %+v", processed)
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			wantRequests := []string{oldOrder, readyOrder, readyOrder, oldOrder, oldOrder}
-			if !reflect.DeepEqual(requests, wantRequests) {
-				t.Fatalf("requests=%v, want %v", requests, wantRequests)
-			}
-		})
+			<-r.Context().Done()
+		default:
+			t.Errorf("unexpected request after rate limit: %s", id)
+		}
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	service := Service{Repository: Repository{pool: db}, AccrualClient: *NewAccrualClient(server.URL, server.Client())}
+	if pause, err := service.pollBonuses(ctx); err != nil || pause != 2*time.Second {
+		t.Fatalf("first poll: pause=%s, error=%v", pause, err)
+	}
+	if requests.Load() != 5 || len(db.updates) != 1 || db.updates[0].orderID != "1" {
+		t.Fatalf("requests=%d, updates=%+v; want 5 requests and saved order 1", requests.Load(), db.updates)
+	}
+	if service.resumeOrderID != "6" {
+		t.Fatalf("resume order=%q, want first unscheduled order 6", service.resumeOrderID)
+	}
+	recovered.Store(true)
+	if pause, err := service.pollBonuses(ctx); err != nil || pause != 0 {
+		t.Fatalf("resumed poll: pause=%s, error=%v", pause, err)
+	}
+	seen := make(map[string]bool)
+	for _, update := range db.updates {
+		if seen[update.orderID] || update.status != StatusProcessed || update.bonusesCredited != 12.5 {
+			t.Fatalf("duplicate or invalid update: %+v", update)
+		}
+		seen[update.orderID] = true
+	}
+	if len(seen) != 9 || len(db.pending) != 0 {
+		t.Fatalf("processed=%d, pending=%v; want all 9 orders processed", len(seen), db.pending)
+	}
+	before := requests.Load()
+	if pause, err := service.pollBonuses(ctx); err != nil || pause != 0 || requests.Load() != before {
+		t.Fatalf("empty poll: pause=%s, error=%v, extra requests=%d", pause, err, requests.Load()-before)
 	}
 }
 
 func TestPollBonusesWhenRateLimitedOrderDisappears(t *testing.T) {
 	const oldOrder, nextOrder = "12345678903", "9278923470"
-	db := &pollingDB{pending: []string{oldOrder, nextOrder}}
+	db := &pollingDB{pending: []string{oldOrder}}
 	var mu sync.Mutex
 	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

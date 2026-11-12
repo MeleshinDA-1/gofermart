@@ -8,7 +8,7 @@ import (
 
 // GetBalance возвращает начисления по PROCESSED минус списания и общую сумму списаний.
 // При отсутствии записей суммы равны нулю.
-func (userRepository Repository) GetBalance(ctx context.Context, userId int64) (float64, float64, error) {
+func (userRepository Repository) GetBalance(ctx context.Context, userID int64) (float64, float64, error) {
 	var current, withdrawn float64
 
 	err := userRepository.pool.QueryRow(
@@ -24,19 +24,19 @@ func (userRepository Repository) GetBalance(ctx context.Context, userId int64) (
 		             (SELECT SUM(sum) FROM withdrawals WHERE userId = $1), 0
 		         ) AS withdrawn
 		 ) totals`,
-		userId,
+		userID,
 	).Scan(&current, &withdrawn)
 
 	return current, withdrawn, err
 }
 
-// GetWithdrawals возвращает списания userId от новых к старым по времени обработки.
-func (userRepository Repository) GetWithdrawals(ctx context.Context, userId int64) ([]Withdrawal, error) {
+// GetWithdrawals возвращает списания userID от новых к старым по времени обработки.
+func (userRepository Repository) GetWithdrawals(ctx context.Context, userID int64) ([]Withdrawal, error) {
 	rows, err := userRepository.pool.Query(
 		ctx,
 		`SELECT id, userId, orderId, sum, processedAt
 		 FROM withdrawals WHERE userId = $1 ORDER BY processedAt DESC`,
-		userId,
+		userID,
 	)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (userRepository Repository) GetWithdrawals(ctx context.Context, userId int6
 	var withdrawals []Withdrawal
 	for rows.Next() {
 		var withdrawal Withdrawal
-		if err := rows.Scan(&withdrawal.id, &withdrawal.userId, &withdrawal.orderId, &withdrawal.sum, &withdrawal.processedAt); err != nil {
+		if err := rows.Scan(&withdrawal.id, &withdrawal.userID, &withdrawal.orderID, &withdrawal.sum, &withdrawal.processedAt); err != nil {
 			return nil, err
 		}
 		withdrawals = append(withdrawals, withdrawal)
@@ -64,8 +64,8 @@ func (userRepository Repository) Withdraw(ctx context.Context, withdrawal Withdr
 	}
 	defer tx.Rollback(ctx)
 
-	var userId int64
-	err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, withdrawal.userId).Scan(&userId)
+	var userID int64
+	err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, withdrawal.userID).Scan(&userID)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func (userRepository Repository) Withdraw(ctx context.Context, withdrawal Withdr
 		     ) - COALESCE(
 		         (SELECT SUM(sum) FROM withdrawals WHERE userId = $1), 0
 		     )`,
-		withdrawal.userId, withdrawal.orderId, withdrawal.sum,
+		withdrawal.userID, withdrawal.orderID, withdrawal.sum,
 	)
 	if err != nil {
 		return err

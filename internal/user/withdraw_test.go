@@ -45,12 +45,12 @@ func (tx withdrawalTx) Commit(ctx context.Context) error { return tx.commit(ctx)
 func (tx withdrawalTx) Rollback(ctx context.Context) error { return tx.rollback(ctx) }
 
 func TestWithdrawHTTP(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	token := validTestToken(t, "42")
 	const body = `{"order":"00012345678903","sum":12.5,"userId":999}`
 	for _, test := range []struct {
 		name         string
 		body         string
+		orderID      string
 		unauthorized bool
 		insufficient bool
 		failAt       string
@@ -58,6 +58,8 @@ func TestWithdrawHTTP(t *testing.T) {
 		wantSteps    string
 	}{
 		{name: "success", body: body, wantStatus: 200, wantSteps: "begin,lock,insert,commit,rollback"},
+		{name: "maximum order length", body: `{"order":"` + strings.Repeat("0", 255) + `","sum":12.5}`, orderID: strings.Repeat("0", 255), wantStatus: 200, wantSteps: "begin,lock,insert,commit,rollback"},
+		{name: "order too long", body: `{"order":"` + strings.Repeat("0", 256) + `","sum":12.5}`, wantStatus: 422},
 		{name: "insufficient funds", body: body, insufficient: true, wantStatus: 402, wantSteps: "begin,lock,insert,rollback"},
 		{name: "unauthorized", body: body, unauthorized: true, wantStatus: 401},
 		{name: "malformed JSON", body: "{", wantStatus: 400},
@@ -72,6 +74,10 @@ func TestWithdrawHTTP(t *testing.T) {
 		{name: "commit failure", body: body, failAt: "commit", wantStatus: 500, wantSteps: "begin,lock,insert,commit,rollback"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			orderID := test.orderID
+			if orderID == "" {
+				orderID = "00012345678903"
+			}
 			var steps []string
 			step := func(name string) error {
 				steps = append(steps, name)
@@ -90,7 +96,7 @@ func TestWithdrawHTTP(t *testing.T) {
 					return idRow(42, step("lock"))
 				},
 				insert: func(ctx context.Context, _ string, args ...any) (pgconn.CommandTag, error) {
-					if ctx != transactionContext || !reflect.DeepEqual(args, []any{int64(42), "00012345678903", 12.5}) {
+					if ctx != transactionContext || !reflect.DeepEqual(args, []any{int64(42), orderID, 12.5}) {
 						t.Fatalf("unexpected withdrawal arguments: %v", args)
 					}
 					err := step("insert")
@@ -136,7 +142,6 @@ func TestWithdrawHTTP(t *testing.T) {
 }
 
 func TestConcurrentWithdrawals(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	token := validTestToken(t, "42")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

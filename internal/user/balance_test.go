@@ -14,7 +14,6 @@ import (
 )
 
 func TestGetBalanceHTTP(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	authorization := "Bearer " + validTestToken(t, "42")
 	for _, test := range []struct {
 		name          string

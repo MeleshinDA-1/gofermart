@@ -13,7 +13,6 @@ import (
 )
 
 func TestUserServiceAuthenticate(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	hash, err := calculateHash("correct-password")
 	if err != nil {
 		t.Fatal(err)
@@ -26,20 +25,15 @@ func TestUserServiceAuthenticate(t *testing.T) {
 		lookupErr error
 		wantErr   error
 		wantFail  bool
-		unsetKey  bool
 	}{
 		{name: "success", password: "correct-password", hash: hash},
 		{name: "wrong password", password: "wrong-password", hash: hash, wantErr: auth.ErrInvalidCredentials, wantFail: true},
 		{name: "unknown login", lookupErr: fmt.Errorf("lookup: %w", pgx.ErrNoRows), wantErr: auth.ErrInvalidCredentials, wantFail: true},
 		{name: "database failure", lookupErr: dbErr, wantErr: dbErr, wantFail: true},
 		{name: "invalid stored hash", password: "correct-password", hash: "invalid-hash", wantFail: true},
-		{name: "missing signing key", password: "correct-password", hash: hash, unsetKey: true, wantFail: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.unsetKey {
-				t.Setenv("JWT_SECRET", "")
-			}
 			user := User{ID: 9223372036854775807, Login: "alice", PasswordHash: tt.hash}
 			service := testService(func(_ context.Context, _ string, args ...any) pgx.Row {
 				if len(args) != 1 || args[0] != user.Login {
@@ -66,7 +60,6 @@ func TestUserServiceAuthenticate(t *testing.T) {
 }
 
 func TestUserServiceSaveUserHashesPassword(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	input := Credentials{Login: "alice", Password: "registration-password"}

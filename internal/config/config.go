@@ -1,36 +1,53 @@
 package config
 
 import (
+	"errors"
 	"flag"
+	"fmt"
 	"os"
 )
 
-// Config содержит адреса HTTP-сервера, PostgreSQL и сервиса начислений.
+// Config содержит конфигурацию сервиса.
 type Config struct {
 	RunAddress     string
 	DatabaseURI    string
 	AccrualAddress string
+	JWTSecret      string
 }
 
-// Parse читает RUN_ADDRESS, DATABASE_URI и ACCRUAL_SYSTEM_ADDRESS и флаги -a, -d, -r.
+// Parse читает переменные окружения и флаги -a, -d, -r.
 // Флаги имеют приоритет; ошибки и flag.ErrHelp возвращаются после вывода сообщения в stderr.
 func Parse(args []string) (Config, error) {
 	cfg := Config{
-		RunAddress:     os.Getenv("RUN_ADDRESS"),
-		DatabaseURI:    os.Getenv("DATABASE_URI"),
-		AccrualAddress: os.Getenv("ACCRUAL_SYSTEM_ADDRESS"),
+		RunAddress: ":8080",
+		JWTSecret:  os.Getenv("JWT_SECRET"),
 	}
-	if cfg.RunAddress == "" {
-		cfg.RunAddress = ":8080"
+	if value, ok := os.LookupEnv("RUN_ADDRESS"); ok {
+		cfg.RunAddress = value
 	}
-	if cfg.DatabaseURI == "" {
-		cfg.DatabaseURI = "postgres://gofermart:password@localhost:5434/gofermart?sslmode=disable"
+	if value, ok := os.LookupEnv("DATABASE_URI"); ok {
+		cfg.DatabaseURI = value
+	}
+	if value, ok := os.LookupEnv("ACCRUAL_SYSTEM_ADDRESS"); ok {
+		cfg.AccrualAddress = value
 	}
 
 	flags := flag.NewFlagSet("gofermart", flag.ContinueOnError)
 	flags.StringVar(&cfg.RunAddress, "a", cfg.RunAddress, "Адрес и порт HTTP-сервера")
 	flags.StringVar(&cfg.DatabaseURI, "d", cfg.DatabaseURI, "Строка подключения к PostgreSQL")
 	flags.StringVar(&cfg.AccrualAddress, "r", cfg.AccrualAddress, "Адрес сервиса начисления")
-	err := flags.Parse(args)
-	return cfg, err
+	if err := flags.Parse(args); err != nil {
+		return cfg, err
+	}
+	if cfg.DatabaseURI == "" {
+		err := errors.New("задайте DATABASE_URI или флаг -d")
+		fmt.Fprintln(flags.Output(), err)
+		return cfg, err
+	}
+	if len(cfg.JWTSecret) < 32 {
+		err := errors.New("JWT_SECRET должен содержать минимум 32 байта")
+		fmt.Fprintln(flags.Output(), err)
+		return cfg, err
+	}
+	return cfg, nil
 }

@@ -1,8 +1,6 @@
 package auth
 
 import (
-	"errors"
-	"os"
 	"strconv"
 	"time"
 
@@ -10,14 +8,9 @@ import (
 )
 
 // IssueToken выпускает JWT HS256 с ID пользователя в sub и сроком действия 24 часа.
-func IssueToken(userId int64) (string, error) {
-	secret, err := getJwtSecret()
-	if err != nil {
-		return "", err
-	}
-
+func IssueToken(userID int64, secret string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   strconv.FormatInt(userId, 10),
+		Subject:   strconv.FormatInt(userID, 10),
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 	})
 
@@ -26,12 +19,7 @@ func IssueToken(userId int64) (string, error) {
 
 // ParseToken проверяет подпись HS256 и обязательный срок exp у JWT без префикса Bearer.
 // Возвращает токен с *jwt.RegisteredClaims.
-func ParseToken(tokenString string) (*jwt.Token, error) {
-	secret, err := getJwtSecret()
-	if err != nil {
-		return nil, err
-	}
-
+func ParseToken(tokenString, secret string) (*jwt.Token, error) {
 	claims := &jwt.RegisteredClaims{}
 
 	token, err := jwt.ParseWithClaims(
@@ -49,13 +37,4 @@ func ParseToken(tokenString string) (*jwt.Token, error) {
 	}
 
 	return token, nil
-}
-
-func getJwtSecret() (string, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if len(secret) < 32 {
-		return "", errors.New("JWT_SECRET должен содержать минимум 32 байта")
-	}
-
-	return secret, nil
 }

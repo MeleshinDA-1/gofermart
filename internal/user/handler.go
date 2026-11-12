@@ -3,7 +3,9 @@ package user
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"unicode/utf8"
 
 	"gofermart/internal/auth"
 )
@@ -16,7 +18,7 @@ type Handler struct {
 }
 
 // Register регистрирует пользователя; занятый логин даёт 409.
-func (userApi Handler) Register(responseWriter http.ResponseWriter, request *http.Request) {
+func (h Handler) Register(responseWriter http.ResponseWriter, request *http.Request) {
 	var requestUser Credentials
 
 	if err := json.NewDecoder(request.Body).Decode(&requestUser); err != nil {
@@ -28,7 +30,12 @@ func (userApi Handler) Register(responseWriter http.ResponseWriter, request *htt
 		return
 	}
 
-	token, err := userApi.Service.SaveUser(
+	if utf8.RuneCountInString(requestUser.Login) > 255 {
+		http.Error(responseWriter, "Логин длиннее 255 символов", http.StatusBadRequest)
+		return
+	}
+
+	token, err := h.Service.SaveUser(
 		request.Context(),
 		requestUser,
 	)
@@ -39,6 +46,7 @@ func (userApi Handler) Register(responseWriter http.ResponseWriter, request *htt
 	}
 
 	if err != nil {
+		log.Printf("Регистрация пользователя: %v", err)
 		http.Error(responseWriter, "Внутренняя ошибка сервера", http.StatusInternalServerError)
 		return
 	}
@@ -48,7 +56,7 @@ func (userApi Handler) Register(responseWriter http.ResponseWriter, request *htt
 }
 
 // Login аутентифицирует пользователя; неверные учётные данные дают 401.
-func (userApi Handler) Login(responseWriter http.ResponseWriter, request *http.Request) {
+func (h Handler) Login(responseWriter http.ResponseWriter, request *http.Request) {
 	var requestUser Credentials
 	if err := json.NewDecoder(request.Body).Decode(&requestUser); err != nil {
 		http.Error(
@@ -59,7 +67,12 @@ func (userApi Handler) Login(responseWriter http.ResponseWriter, request *http.R
 		return
 	}
 
-	token, err := userApi.Service.Authenticate(request.Context(), requestUser.Login, requestUser.Password)
+	if utf8.RuneCountInString(requestUser.Login) > 255 {
+		http.Error(responseWriter, "Логин длиннее 255 символов", http.StatusBadRequest)
+		return
+	}
+
+	token, err := h.Service.Authenticate(request.Context(), requestUser.Login, requestUser.Password)
 
 	if errors.Is(err, auth.ErrInvalidCredentials) {
 		http.Error(responseWriter, "Неправильные логин или пароль", http.StatusUnauthorized)
@@ -67,6 +80,7 @@ func (userApi Handler) Login(responseWriter http.ResponseWriter, request *http.R
 	}
 
 	if err != nil {
+		log.Printf("Аутентификация пользователя: %v", err)
 		http.Error(responseWriter, "Ошибка сервера", http.StatusInternalServerError)
 		return
 	}

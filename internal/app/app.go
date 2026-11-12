@@ -10,16 +10,18 @@ import (
 	"gofermart/internal/config"
 	"gofermart/internal/order"
 	"gofermart/internal/user"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // Run открывает пул PostgreSQL, подключает маршруты и запускает HTTP-сервер.
 // Требует cfg.AccrualAddress; при завершении отменяет опрос и закрывает пул.
 func Run(cfg config.Config) error {
 	if cfg.AccrualAddress == "" {
-		return errors.New("Задайте ACCRUAL_SYSTEM_ADDRESS или флаг -r")
+		return errors.New("задайте ACCRUAL_SYSTEM_ADDRESS или флаг -r")
 	}
 
-	pool, err := configureDb(cfg.DatabaseURI)
+	pool, err := configureDB(cfg.DatabaseURI)
 	if err != nil {
 		return err
 	}
@@ -28,7 +30,7 @@ func Run(cfg config.Config) error {
 	defer cancel()
 
 	userRepository := user.NewRepository(pool)
-	userService := user.NewService(*userRepository)
+	userService := user.NewService(*userRepository, cfg.JWTSecret)
 	userHandler := user.NewHandler(*userService)
 
 	orderRepository := order.NewRepository(pool)
@@ -37,7 +39,16 @@ func Run(cfg config.Config) error {
 		Repository:    *orderRepository,
 		AccrualClient: *accrualClient,
 	}}
-	go orderHandler.Service.RunPoller(ctx)
 
-	return http.ListenAndServe(cfg.RunAddress, newRouter(userHandler, orderHandler))
+	group, ctx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		orderHandler.Service.RunPoller(ctx)
+		return nil
+	})
+
+	group.Go(func() error {
+		return http.ListenAndServe(cfg.RunAddress, newRouter(userHandler, orderHandler, cfg.JWTSecret))
+	})
+
+	return group.Wait()
 }

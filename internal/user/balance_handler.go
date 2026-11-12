@@ -3,6 +3,7 @@ package user
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -10,9 +11,10 @@ import (
 )
 
 // GetBalance отвечает 200 с JSON: current - баланс, withdrawn - сумма списаний.
-func (userApi Handler) GetBalance(responseWriter http.ResponseWriter, request *http.Request) {
-	current, withdrawn, err := userApi.Service.GetBalance(request.Context())
+func (h Handler) GetBalance(responseWriter http.ResponseWriter, request *http.Request) {
+	current, withdrawn, err := h.Service.GetBalance(request.Context())
 	if err != nil {
+		log.Printf("Получение баланса: %v", err)
 		responseWriter.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -26,6 +28,7 @@ func (userApi Handler) GetBalance(responseWriter http.ResponseWriter, request *h
 	}
 	body, err := json.Marshal(balance)
 	if err != nil {
+		log.Printf("Формирование JSON баланса: %v", err)
 		responseWriter.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -36,9 +39,10 @@ func (userApi Handler) GetBalance(responseWriter http.ResponseWriter, request *h
 
 // GetWithdrawals отвечает 200 со своими списаниями от новых к старым: order, sum, processed_at (RFC3339).
 // При пустом списке возвращает 204.
-func (userApi Handler) GetWithdrawals(responseWriter http.ResponseWriter, request *http.Request) {
-	withdrawals, err := userApi.Service.GetWithdrawals(request.Context())
+func (h Handler) GetWithdrawals(responseWriter http.ResponseWriter, request *http.Request) {
+	withdrawals, err := h.Service.GetWithdrawals(request.Context())
 	if err != nil {
+		log.Printf("Получение истории списаний: %v", err)
 		responseWriter.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -55,7 +59,7 @@ func (userApi Handler) GetWithdrawals(responseWriter http.ResponseWriter, reques
 	response := make([]withdrawalResponse, len(withdrawals))
 	for i, withdrawal := range withdrawals {
 		response[i] = withdrawalResponse{
-			Order:       withdrawal.orderId,
+			Order:       withdrawal.orderID,
 			Sum:         withdrawal.sum,
 			ProcessedAt: withdrawal.processedAt.Format(time.RFC3339),
 		}
@@ -63,6 +67,7 @@ func (userApi Handler) GetWithdrawals(responseWriter http.ResponseWriter, reques
 
 	body, err := json.Marshal(response)
 	if err != nil {
+		log.Printf("Формирование JSON истории списаний: %v", err)
 		responseWriter.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -72,7 +77,7 @@ func (userApi Handler) GetWithdrawals(responseWriter http.ResponseWriter, reques
 
 // Withdraw принимает JSON с order и sum.
 // Ответы: 200 при списании, 402 при нехватке баллов, 422 при неверном номере, 400 при неположительной сумме.
-func (userApi Handler) Withdraw(responseWriter http.ResponseWriter, request *http.Request) {
+func (h Handler) Withdraw(responseWriter http.ResponseWriter, request *http.Request) {
 	var withdrawal struct {
 		Order string  `json:"order"`
 		Sum   float64 `json:"sum"`
@@ -82,7 +87,7 @@ func (userApi Handler) Withdraw(responseWriter http.ResponseWriter, request *htt
 		return
 	}
 
-	err := userApi.Service.Withdraw(request.Context(), withdrawal.Order, withdrawal.Sum)
+	err := h.Service.Withdraw(request.Context(), withdrawal.Order, withdrawal.Sum)
 	if err != nil {
 		switch {
 		case errors.Is(err, order.ErrIncorrectLuhn):
@@ -92,6 +97,7 @@ func (userApi Handler) Withdraw(responseWriter http.ResponseWriter, request *htt
 		case errors.Is(err, ErrInsufficientFunds):
 			responseWriter.WriteHeader(http.StatusPaymentRequired)
 		default:
+			log.Printf("Списание баллов: %v", err)
 			responseWriter.WriteHeader(http.StatusInternalServerError)
 		}
 		return

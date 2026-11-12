@@ -13,7 +13,6 @@ import (
 )
 
 func TestCheckingToken(t *testing.T) {
-	t.Setenv("JWT_SECRET", testJWTSecret)
 	valid := validTestToken(t, "42")
 	claims := jwt.RegisteredClaims{Subject: "42", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}
 	expired := signedTestToken(t, jwt.RegisteredClaims{
@@ -68,7 +67,7 @@ func TestCheckingToken(t *testing.T) {
 					t.Fatal("middleware lost the original request cancellation")
 				}
 				w.WriteHeader(http.StatusNoContent)
-			})).ServeHTTP(response, request)
+			}), testJWTSecret).ServeHTTP(response, request)
 
 			if tt.wantID == 0 {
 				if response.Code != http.StatusUnauthorized || calls != 0 {
